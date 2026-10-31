@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15121c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prywatka">
+<title>Prywatka</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <b>Prywatka</b>
+  <button id="devBtn" class="dev" hidden>🔈 <span id="devName">—</span></button>
+</header>
+
+<!-- logowanie -->
+<section id="vLogin" class="view" hidden>
+  <h1>Prywatka</h1>
+  <p>Zaloguj się kontem Spotify Premium, na którym będzie grać muzyka.</p>
+  <button id="loginBtn" class="big">Zaloguj ze Spotify</button>
+</section>
+
+<!-- start -->
+<section id="vHome" class="view" hidden>
+  <button id="scanBtn" class="big">📷 Skanuj kartę</button>
+  <p class="hint">Upewnij się, że aplikacja Spotify jest otwarta na urządzeniu, które ma grać.</p>
+  <details class="tools">
+    <summary>Narzędzia testowe</summary>
+    <form id="searchForm" class="row">
+      <input id="q" placeholder="Wykonawca i tytuł" autocomplete="off">
+      <button>Szukaj</button>
+    </form>
+    <ul id="results"></ul>
+    <div id="qrBox" hidden><div id="qrImg"></div><code id="qrTxt"></code></div>
+    <form id="manualForm" class="row">
+      <input id="manual" placeholder="PRYWATKA1;ID;sekunda" autocomplete="off">
+      <button>Graj</button>
+    </form>
+    <label class="row">Długość fragmentu
+      <select id="lenSel"><option>20</option><option selected>30</option><option>45</option><option>60</option></select> s</label>
+    <button id="logoutBtn" class="ghost">Wyloguj ze Spotify</button>
+    <h3>Dziennik</h3>
+    <ol id="log"></ol>
+  </details>
+</section>
+
+<!-- skaner -->
+<section id="vScan" class="view" hidden>
+  <div class="cam"><video id="video" playsinline muted></video><div class="frame"></div></div>
+  <p id="scanMsg" class="hint">Skieruj aparat na kod QR karty.</p>
+  <button id="scanCancel" class="ghost">Anuluj</button>
+</section>
+
+<!-- odtwarzanie -->
+<section id="vPlay" class="view" hidden>
+  <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" class="bg"/><circle id="arc" cx="60" cy="60" r="54" class="fg"/></svg><div id="count">30</div></div>
+  <p id="playMsg" class="hint">Słuchaj uważnie…</p>
+  <div class="grid">
+    <button id="againBtn">↺ Powtórz</button>
+    <button id="moreBtn">+15 s</button>
+    <button id="pauseBtn">⏸ Pauza</button>
+    <button id="revealBtn">👁 Odkryj</button>
+  </div>
+  <div id="reveal" hidden></div>
+  <button id="nextBtn" class="big">📷 Następna karta</button>
+</section>
+
+<!-- wybór urządzenia -->
+<dialog id="devDlg">
+  <h3>Gdzie grać?</h3>
+  <ul id="devList"></ul>
+  <p class="hint">Nie widzisz telefonu? Otwórz aplikację Spotify i odśwież.</p>
+  <div class="row">
+    <a class="btn" href="spotify:">Otwórz Spotify</a>
+    <button id="devRefresh">Odśwież</button>
+    <button id="devClose" class="ghost">Zamknij</button>
+  </div>
+</dialog>
+
+<div id="toast" hidden></div>
+<script src="vendor/jsQR.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

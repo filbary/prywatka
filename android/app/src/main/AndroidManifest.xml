@@ -4,13 +4,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- Android 11+: pozwala sprawdzić, czy Spotify jest zainstalowane, i połączyć się z nim -->
-    <queries>
-        <package android:name="com.spotify.music" />
-    </queries>
-
     <application
-        android:label="Prywatka (test)"
+        android:label="Prywatka"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:supportsRtl="true">
         <activity
@@ -31,17 +26,5 @@
             android:stateNotNeeded="true"
             android:theme="@style/zxing_CaptureTheme"
             android:windowSoftInputMode="stateAlwaysHidden" />
-
-        <!-- powrót z logowania Spotify (prywatka://callback) -->
-        <activity
-            android:name="com.spotify.sdk.android.auth.browser.RedirectUriReceiverActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="prywatka" android:host="callback" />
-            </intent-filter>
-        </activity>
     </application>
 </manifest>

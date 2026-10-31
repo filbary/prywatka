@@ -11,8 +11,8 @@ android {
         applicationId = "pl.filbary.prywatka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3-test"
+        versionCode = 4
+        versionName = "0.4-test"
     }
 
     // Klucz testowy (debug) – jego odcisk SHA1 jest wpisany w ustawieniach aplikacji Spotify.
@@ -35,9 +35,6 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
-    implementation("com.spotify.android:auth:5.0.0")
-    implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

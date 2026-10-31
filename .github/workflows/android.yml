@@ -24,12 +24,6 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Pobierz Spotify App Remote SDK
-        run: |
-          mkdir -p android/app/libs
-          curl -fsSL -o android/app/libs/spotify-app-remote-release-0.8.0.aar \
-            https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar
-
       - name: Zbuduj APK
         run: gradle -p android assembleDebug --no-daemon --stacktrace
 

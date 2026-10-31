@@ -1,130 +1,85 @@
 package pl.filbary.prywatka
 
 import android.annotation.SuppressLint
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.CountDownTimer
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
-import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import com.spotify.android.appremote.api.ConnectionParams
-import com.spotify.android.appremote.api.Connector
-import com.spotify.android.appremote.api.SpotifyAppRemote
-import com.spotify.sdk.android.auth.AuthorizationClient
-import com.spotify.sdk.android.auth.AuthorizationRequest
-import com.spotify.sdk.android.auth.AuthorizationResponse
-import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Prywatka – test natywny.
- * Tryb A (domyślny): odtwarzacz Spotify wbudowany w aplikację (Web Playback SDK w WebView) –
- *   dźwięk gra w Prywatce, Spotify nie pokazuje powiadomienia z tytułem.
- * Tryb B (porównawczy): sterowanie aplikacją Spotify w tle (App Remote SDK).
+ * Prywatka – test odtwarzania z YouTube wewnątrz aplikacji.
+ * Odtwarzacz YouTube działa w ukrytym okienku (WebView zasłonięty planszą), więc nikt nie widzi tytułu,
+ * a Android nie pokazuje powiadomienia z utworem. Reklamy grają wyciszone; dźwięk włącza się,
+ * gdy ruszy właściwe nagranie od zadanej sekundy.
+ *
+ * Kod karty: PRYWATKA2;<ID nagrania YouTube, 11 znaków>;<start w sekundach>
  */
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        const val CLIENT_ID = "9f67b91656e04184a410b44f5b2d5d4a"
-        const val REDIRECT_URI = "prywatka://callback"
-        const val PLAYER_URL = "https://filbary.github.io/prywatka/sdk.html"
-        const val SNIPPET_MS = 30_000L
-        val QR = Regex("^(?:PRYWATKA1|KARTKI1);([A-Za-z0-9]{22});(\\d{1,4})$")
-        val SCOPES = arrayOf(
-            "streaming", "user-read-email", "user-read-private",
-            "user-modify-playback-state", "user-read-playback-state", "app-remote-control"
-        )
+        const val PLAYER_URL = "https://filbary.github.io/prywatka/yt.html"
+        const val SNIPPET_S = 30
+        val QR = Regex("^PRYWATKA2;([A-Za-z0-9_-]{11});(\\d{1,4})$")
     }
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var stopTask: Runnable? = null
-    private var token: String? = null
-    private var tokenExp = 0L
-    private var afterAuth: (() -> Unit)? = null
-    private var embeddedReady = false
-    private var remote: SpotifyAppRemote? = null
+    private var ready = false
+    private var current: Pair<String, Int>? = null
+    private var timer: CountDownTimer? = null
+    private var paused = false
 
+    private lateinit var web: WebView
     private lateinit var input: EditText
     private lateinit var status: TextView
+    private lateinit var big: TextView
+    private lateinit var reveal: TextView
+    private lateinit var pauseBtn: Button
     private lateinit var logView: TextView
-    private lateinit var web: WebView
-
-    private val authLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        val resp = AuthorizationClient.getResponse(res.resultCode, res.data)
-        when (resp.type) {
-            AuthorizationResponse.Type.TOKEN -> {
-                token = resp.accessToken
-                tokenExp = System.currentTimeMillis() + (resp.expiresIn - 60) * 1000L
-                log("Zgoda Spotify ✓ (token ważny ${resp.expiresIn / 60} min)")
-                loadEmbeddedPlayer()
-                val next = afterAuth; afterAuth = null; next?.invoke()
-            }
-            AuthorizationResponse.Type.ERROR -> { setStatus("Błąd autoryzacji ✗", "#ff6b6b"); log("Autoryzacja – błąd: ${resp.error}") }
-            else -> { setStatus("Autoryzacja przerwana", "#ff6b6b"); log("Autoryzacja przerwana (${resp.type})") }
-        }
-    }
 
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         val text = result.contents ?: return@registerForActivityResult
         input.setText(text)
-        playEmbeddedFromInput()
+        playFromInput()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(buildUi())
-        log("Odcisk SHA1 aplikacji: " + signingSha1())
-        log("Spotify zainstalowane: " + SpotifyAppRemote.isSpotifyInstalled(this))
+        setupWebView()
+        web.loadUrl(PLAYER_URL)
+        setStatus("Uruchamiam odtwarzacz…", "#ffc24b")
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        remote?.let { SpotifyAppRemote.disconnect(it) }
-        web.destroy()
-    }
+    override fun onDestroy() { super.onDestroy(); web.destroy() }
 
-    // ---------------------------------------------------------------- autoryzacja
-
-    private fun withToken(then: () -> Unit) {
-        if (token != null && System.currentTimeMillis() < tokenExp) { then(); return }
-        setStatus("Proszę o zgodę Spotify…", "#ffc24b")
-        afterAuth = then
-        val req = AuthorizationRequest.Builder(CLIENT_ID, AuthorizationResponse.Type.TOKEN, REDIRECT_URI)
-            .setScopes(SCOPES).build()
-        authLauncher.launch(AuthorizationClient.createLoginActivityIntent(this, req))
-    }
-
-    // ---------------------------------------------------------------- tryb A: odtwarzacz wbudowany
+    // ---------------------------------------------------------------- odtwarzacz (WebView)
 
     inner class Bridge {
-        @JavascriptInterface fun getToken(): String = token ?: ""
-        @JavascriptInterface fun log(msg: String) = this@MainActivity.log("[odtwarzacz] $msg")
-        @JavascriptInterface fun state(s: String) {
-            embeddedReady = s == "ready"
-            when (s) {
-                "ready" -> setStatus("Odtwarzacz w aplikacji gotowy ✓", "#33d69f")
-                "error" -> setStatus("Odtwarzacz w aplikacji – błąd ✗", "#ff6b6b")
-                else -> setStatus("Odtwarzacz niedostępny", "#ffc24b")
-            }
-        }
+        @JavascriptInterface fun log(msg: String) = this@MainActivity.log(msg)
+        @JavascriptInterface fun onTitle(t: String) = runOnUiThread { reveal.text = if (t.isBlank()) "(brak tytułu)" else t; reveal.visibility = View.VISIBLE }
+        @JavascriptInterface fun onState(s: String) = runOnUiThread { handleState(s) }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -132,147 +87,126 @@ class MainActivity : AppCompatActivity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = false
-        // WebView przedstawia się jak zwykły Chrome (bez znacznika „wv”)
-        web.settings.userAgentString = web.settings.userAgentString
-            .replace("; wv", "").replace(Regex("Version/\\S+ "), "")
         web.addJavascriptInterface(Bridge(), "Android")
-        web.webChromeClient = object : WebChromeClient() {
-            // Spotify wymaga zabezpieczonego odtwarzania (DRM Widevine)
-            override fun onPermissionRequest(request: PermissionRequest) {
-                runOnUiThread { request.grant(request.resources) }
+        web.webChromeClient = WebChromeClient()
+        web.webViewClient = WebViewClient()
+    }
+
+    private fun handleState(s: String) {
+        when {
+            s == "ready" -> { ready = true; setStatus("Gotowe – zeskanuj kartę", "#33d69f") }
+            s == "loading" -> { setStatus("Ładuję…", "#ffc24b"); big.text = "…" }
+            s == "ad" -> { setStatus("Reklama gra bez dźwięku – chwilka…", "#ffc24b"); log("Reklama (wyciszona)") }
+            s.startsWith("playing:") -> {
+                paused = false; pauseBtn.text = "⏸ Pauza"
+                setStatus("Słuchaj uważnie…", "#33d69f")
+                startCountdown(s.substringAfter(':').toIntOrNull() ?: SNIPPET_S)
             }
+            s == "paused" -> { timer?.cancel(); setStatus("Pauza", "#a59cbb") }
+            s == "ended" -> { timer?.cancel(); big.text = "0"; setStatus("Koniec fragmentu", "#a59cbb") }
+            s == "stopped" -> { timer?.cancel(); big.text = "" }
+            s.startsWith("error") -> { timer?.cancel(); setStatus("Błąd: ${s.substringAfter(':')}", "#ff6b6b"); log("Błąd odtwarzacza: $s") }
         }
     }
 
-    private fun loadEmbeddedPlayer() {
-        if (web.url != null) return
-        setStatus("Uruchamiam odtwarzacz w aplikacji…", "#ffc24b")
-        web.loadUrl(PLAYER_URL)
+    private fun js(code: String) = web.evaluateJavascript(code, null)
+
+    private fun startCountdown(sec: Int) {
+        timer?.cancel()
+        timer = object : CountDownTimer(sec * 1000L, 250) {
+            override fun onTick(ms: Long) { big.text = ((ms + 999) / 1000).toString() }
+            override fun onFinish() { big.text = "0" }
+        }.start()
     }
 
-    private fun playEmbeddedFromInput() {
-        val (id, start) = parse() ?: return
-        withToken {
-            if (!embeddedReady) {
-                log("Odtwarzacz jeszcze się uruchamia – spróbuję za 2 s")
-                handler.postDelayed({ playEmbedded(id, start) }, 2000)
-            } else playEmbedded(id, start)
-        }
-    }
+    // ---------------------------------------------------------------- akcje
 
-    private fun playEmbedded(id: String, start: Long) {
-        if (!embeddedReady) { log("Odtwarzacz w aplikacji niegotowy – zobacz komunikaty [odtwarzacz]"); return }
-        log("A: graj w aplikacji od ${start}s")
-        web.evaluateJavascript("playTrack('$id', $start)", null)
-        scheduleStop { web.evaluateJavascript("pauseTrack()", null); log("Koniec fragmentu – pauza") }
-    }
-
-    // ---------------------------------------------------------------- tryb B: aplikacja Spotify w tle
-
-    private fun playRemoteFromInput() {
-        val (id, start) = parse() ?: return
-        withToken { connectRemote { playRemote(id, start) } }
-    }
-
-    private fun connectRemote(then: () -> Unit) {
-        remote?.let { if (it.isConnected) { then(); return } }
-        val params = ConnectionParams.Builder(CLIENT_ID).setRedirectUri(REDIRECT_URI).showAuthView(true).build()
-        SpotifyAppRemote.connect(this, params, object : Connector.ConnectionListener {
-            override fun onConnected(appRemote: SpotifyAppRemote) { remote = appRemote; log("B: połączono z aplikacją Spotify"); then() }
-            override fun onFailure(error: Throwable) { log("B: błąd połączenia: ${error.javaClass.simpleName}: ${error.message}") }
-        })
-    }
-
-    private fun playRemote(id: String, start: Long) {
-        val api = remote?.playerApi ?: return
-        log("B: graj przez Spotify od ${start}s")
-        api.play("spotify:track:$id").setResultCallback {
-            handler.postDelayed({ api.seekTo(start * 1000) }, 450)
-        }.setErrorCallback { log("B: błąd: ${it.message}") }
-        scheduleStop { api.pause(); log("Koniec fragmentu – pauza") }
-    }
-
-    // ---------------------------------------------------------------- wspólne
-
-    private fun parse(): Pair<String, Long>? {
+    private fun playFromInput() {
         val m = QR.matchEntire(input.text.toString().trim())
-        if (m == null) { log("Zły format. Przykład: PRYWATKA1;<ID>;149"); return null }
-        return m.groupValues[1] to m.groupValues[2].toLong()
+        if (m == null) { log("To nie jest karta Prywatki (oczekuję PRYWATKA2;ID;sekunda)"); setStatus("Nieznany kod", "#ff6b6b"); return }
+        play(m.groupValues[1], m.groupValues[2].toInt())
     }
 
-    private fun scheduleStop(action: () -> Unit) {
-        stopTask?.let { handler.removeCallbacks(it) }
-        val t = Runnable(action); stopTask = t
-        handler.postDelayed(t, SNIPPET_MS + 500)
+    private fun play(id: String, start: Int) {
+        if (!ready) { log("Odtwarzacz jeszcze się ładuje"); return }
+        current = id to start
+        reveal.visibility = View.GONE
+        log("Graj $id od ${start}s")
+        js("playClip('$id', $start, $SNIPPET_S)")
     }
 
-    private fun pauseAll() {
-        stopTask?.let { handler.removeCallbacks(it) }
-        web.evaluateJavascript("pauseTrack && pauseTrack()", null)
-        remote?.playerApi?.pause()
+    private fun togglePause() {
+        if (current == null) return
+        if (!paused) { js("pauseClip()"); paused = true; pauseBtn.text = "▶ Wznów" }
+        else { js("resumeClip()") }
     }
 
-    private fun buildUi(): ScrollView {
+    // ---------------------------------------------------------------- UI
+
+    private fun buildUi(): View {
         val dp = resources.displayMetrics.density
         fun px(v: Int) = (v * dp).toInt()
+        val bg = Color.parseColor("#15121c")
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(px(20), px(28), px(20), px(20))
-            setBackgroundColor(Color.parseColor("#15121c"))
+            setPadding(px(20), px(28), px(20), px(20)); setBackgroundColor(bg)
         }
-        fun text(s: String, size: Float, bold: Boolean = false, color: String = "#f2edf8") =
-            TextView(this).apply {
-                text = s; textSize = size; setTextColor(Color.parseColor(color))
-                if (bold) typeface = Typeface.DEFAULT_BOLD
-                setPadding(0, px(6), 0, px(6))
-            }
+        fun text(s: String, size: Float, bold: Boolean = false, color: String = "#f2edf8") = TextView(this).apply {
+            text = s; textSize = size; setTextColor(Color.parseColor(color))
+            if (bold) typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, px(6), 0, px(6))
+        }
         fun button(label: String, onClick: () -> Unit) = Button(this).apply {
-            text = label; isAllCaps = false; textSize = 17f
-            setOnClickListener { onClick() }
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(8) }
+            text = label; isAllCaps = false; textSize = 17f; setOnClickListener { onClick() }
         }
+        fun full(v: View, top: Int = 8) = v.apply { layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = px(top) } }
 
-        root.addView(text("Prywatka – test odtwarzania", 24f, true))
-        status = text("Niepołączono", 15f, color = "#a59cbb")
-        root.addView(status)
-        root.addView(button("1. Połącz ze Spotify") { withToken { } })
-        root.addView(button("📷 Skanuj kartę (gra w aplikacji)") {
+        root.addView(text("Prywatka", 26f, true))
+        status = text("…", 15f, color = "#a59cbb"); root.addView(status)
+        big = text("", 64f, true).apply { gravity = Gravity.CENTER }
+        root.addView(full(big))
+        root.addView(full(button("📷 Skanuj kartę") {
             scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                 .setPrompt("Zeskanuj kod karty Prywatki").setBeepEnabled(false)
                 .setOrientationLocked(true).setCaptureActivity(PortraitCaptureActivity::class.java))
-        })
-        root.addView(text("Kod karty:", 14f, color = "#a59cbb"))
-        input = EditText(this).apply {
-            setText("PRYWATKA1;4u7EnebtmKWzUH433cf5Qv;149")
-            setTextColor(Color.WHITE); textSize = 14f; isSingleLine = true
+        }))
+
+        val grid = GridLayout(this).apply { columnCount = 2 }
+        fun cell(b: Button) = b.apply {
+            layoutParams = GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, 1f), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply { width = 0 }
         }
+        grid.addView(cell(button("↺ Powtórz") { current?.let { play(it.first, it.second) } }))
+        grid.addView(cell(button("+15 s") { js("extendClip(15)") }))
+        pauseBtn = cell(button("⏸ Pauza") { togglePause() })
+        grid.addView(pauseBtn)
+        grid.addView(cell(button("👁 Odkryj") { js("revealTitle()") }))
+        root.addView(full(grid))
+        reveal = text("", 16f, true).apply { gravity = Gravity.CENTER; visibility = View.GONE }
+        root.addView(full(reveal))
+
+        root.addView(text("Kod karty (test):", 14f, color = "#a59cbb").apply { setPadding(0, px(18), 0, 0) })
+        input = EditText(this).apply { setText("PRYWATKA2;BSTsnWoslP4;149"); setTextColor(Color.WHITE); textSize = 14f; isSingleLine = true }
         root.addView(input)
-        root.addView(button("▶ A: Graj w aplikacji (bez paska)") { playEmbeddedFromInput() })
-        root.addView(button("▶ B: Graj przez aplikację Spotify") { playRemoteFromInput() })
-        root.addView(button("⏸ Pauza") { pauseAll() })
+        root.addView(full(button("▶ Graj kod") { playFromInput() }))
 
-        web = WebView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, px(44)).apply { topMargin = px(10) }
-            setBackgroundColor(Color.parseColor("#15121c"))
-        }
-        setupWebView()
-        root.addView(web)
+        // ukryty odtwarzacz: WebView pod nieprzezroczystą planszą
+        val holder = FrameLayout(this).apply { layoutParams = LinearLayout.LayoutParams(px(160), px(90)).apply { topMargin = px(14) } }
+        web = WebView(this).apply { layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT) }
+        holder.addView(web)
+        holder.addView(TextView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
+            setBackgroundColor(Color.parseColor("#211c2b")); text = "🎵"; textSize = 28f; gravity = Gravity.CENTER
+            isClickable = true
+        })
+        root.addView(holder)
 
-        root.addView(text("Dziennik", 16f, true).apply { gravity = Gravity.START; setPadding(0, px(14), 0, 0) })
+        root.addView(text("Dziennik", 16f, true).apply { setPadding(0, px(14), 0, 0) })
         logView = text("", 12f, color = "#cfc8e2").apply { typeface = Typeface.MONOSPACE }
         root.addView(logView)
-        return ScrollView(this).apply { addView(root); setBackgroundColor(Color.parseColor("#15121c")) }
+        return ScrollView(this).apply { addView(root); setBackgroundColor(bg) }
     }
 
-    private fun signingSha1(): String = try {
-        val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        val cert = info.signingInfo!!.apkContentsSigners[0].toByteArray()
-        MessageDigest.getInstance("SHA-1").digest(cert).joinToString(":") { "%02X".format(it) }
-    } catch (e: Exception) { "? (${e.message})" }
-
-    private fun setStatus(s: String, color: String) = runOnUiThread {
-        status.text = s; status.setTextColor(Color.parseColor(color))
-    }
+    private fun setStatus(s: String, color: String) = runOnUiThread { status.text = s; status.setTextColor(Color.parseColor(color)) }
 
     private fun log(s: String) = runOnUiThread {
         val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())

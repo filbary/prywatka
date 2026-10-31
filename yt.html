@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prywatka – odtwarzacz</title>
+<style>html,body{margin:0;background:#000;overflow:hidden}#p{width:100vw;height:100vh}</style>
+</head>
+<body>
+<div id="p"></div>
+<script>
+// Odtwarzacz uruchamiany wewnątrz aplikacji Prywatka (Android WebView). Polecenia przychodzą z aplikacji.
+const A = window.Android || { onState: s => console.log('state', s), log: m => console.log(m), onTitle: t => console.log('title', t) };
+const log = m => { try { A.log(m); } catch (e) {} };
+const state = s => { try { A.onState(s); } catch (e) {} };
+let player = null, ready = false, want = null, waitSince = 0;
+
+function onYouTubeIframeAPIReady() {
+  player = new YT.Player('p', {
+    width: '100%', height: '100%',
+    playerVars: { playsinline: 1, controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, fs: 0, modestbranding: 1 },
+    events: {
+      onReady: () => { ready = true; state('ready'); log('Odtwarzacz YouTube gotowy'); },
+      onError: e => { state('error:' + e.data); log('Błąd YouTube ' + e.data + ' (2/5 – złe ID, 100 – usunięte, 101/150 – zakaz osadzania)'); },
+    }
+  });
+}
+
+// start fragmentu: wyciszony do momentu, aż ruszy właściwe nagranie (reklama gra bez dźwięku)
+window.playClip = (id, start, len) => {
+  if (!ready) { state('error:notready'); return; }
+  want = { id, start, len, started: false, t0: Date.now() };
+  waitSince = 0;
+  player.mute();
+  const cur = player.getVideoData && player.getVideoData().video_id;
+  if (cur === id) { player.seekTo(start, true); player.playVideo(); }
+  else player.loadVideoById({ videoId: id, startSeconds: start });
+  state('loading');
+};
+window.pauseClip = () => {
+  if (!want) return;
+  if (want.started && !want.paused) { want.left = Math.max(0, want.endAt - Date.now()); want.paused = true; }
+  player.pauseVideo(); state('paused');
+};
+window.resumeClip = () => {
+  if (!want || !want.paused) return;
+  want.paused = false; want.endAt = Date.now() + want.left; player.playVideo();
+  state('playing:' + Math.round(want.left / 1000));
+};
+window.extendClip = sec => {
+  if (!want || !want.started) return;
+  const left = want.paused ? want.left : Math.max(0, want.endAt - Date.now());
+  want.paused = false; want.ended = false; want.endAt = Date.now() + left + sec * 1000;
+  player.playVideo(); state('playing:' + Math.round((left + sec * 1000) / 1000));
+};
+window.stopClip = () => { if (player) player.pauseVideo(); want = null; state('stopped'); };
+window.revealTitle = () => { try { A.onTitle((player.getVideoData() || {}).title || ''); } catch (e) {} };
+
+setInterval(() => {
+  if (!player || !want || !player.getPlayerState) return;
+  const st = player.getPlayerState(), t = player.getCurrentTime(), vid = (player.getVideoData() || {}).video_id;
+  if (!want.started) {
+    if (st === YT.PlayerState.PLAYING && vid === want.id && t >= want.start - 1.5 && t < want.start + 20) {
+      want.started = true; want.endAt = Date.now() + want.len * 1000;
+      player.unMute(); player.setVolume(100);
+      state('playing:' + want.len);
+    } else if (st === YT.PlayerState.PLAYING) {
+      if (!waitSince) { waitSince = Date.now(); state('ad'); }     // gra coś innego (reklama) – czekamy wyciszeni
+    } else if (Date.now() - want.t0 > 30000) { state('error:timeout'); want = null; }
+    return;
+  }
+  if (!want.paused && !want.ended && Date.now() >= want.endAt) { want.ended = true; player.pauseVideo(); state('ended'); }
+}, 200);
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>

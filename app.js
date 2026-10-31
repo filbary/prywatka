@@ -87,10 +87,10 @@ function vuLoop(t) {
       vuTgt = beat ? 0.82 + Math.random() * 0.18 : 0.5 + Math.random() * 0.3;
       vuNext = t + 110 + Math.random() * 150;
     }
-    vuTgt -= dt * 0.9;                      // cel powoli opada między uderzeniami
+    vuTgt -= dt * 1.6;                      // cel powoli opada między uderzeniami
   } else vuTgt = 0;
   vuTgt = Math.max(0, vuTgt);
-  const tau = vuTgt > vuLvl ? 0.035 : 0.28;  // atak / opadanie
+  const tau = vuTgt > vuLvl ? 0.035 : 0.22;  // atak / opadanie
   vuLvl += (vuTgt - vuLvl) * (1 - Math.exp(-dt / tau));
   const seg = Math.round(vuLvl * 20);
   if (seg !== vuSeg) { vuSeg = seg; vuEl.style.clipPath = `inset(0 ${(100 - seg * 5).toFixed(1)}% 0 0)`; }

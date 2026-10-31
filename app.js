@@ -74,6 +74,28 @@ function applyTheme(t) {
   if (S.want && S.want.started) $('#count').textContent = fmtCount(Math.ceil(Math.max(0, (S.want.endAt - Date.now()) / 1000)));
   lastRect = ''; placeBall();
 }
+// pasek głośności: płynny – szybki skok w górę, powolne opadanie (jak prawdziwy wskaźnik)
+const vuEl = document.querySelector('.vul');
+let vuLvl = 0, vuTgt = 0, vuNext = 0, vuLast = 0, vuSeg = -1;
+function vuLoop(t) {
+  requestAnimationFrame(vuLoop);
+  const dt = Math.min(0.05, (t - vuLast) / 1000 || 0); vuLast = t;
+  if (S.theme !== 'spk' || S.view !== 'vPlay') return;
+  if (document.body.classList.contains('live')) {
+    if (t > vuNext) {                       // kolejne „uderzenie”: co ~0,5 s mocniejsze (stopa), pomiędzy słabsze
+      const beat = Math.round(t / 500) !== Math.round(vuNext / 500);
+      vuTgt = beat ? 0.82 + Math.random() * 0.18 : 0.5 + Math.random() * 0.3;
+      vuNext = t + 110 + Math.random() * 150;
+    }
+    vuTgt -= dt * 0.9;                      // cel powoli opada między uderzeniami
+  } else vuTgt = 0;
+  vuTgt = Math.max(0, vuTgt);
+  const tau = vuTgt > vuLvl ? 0.035 : 0.28;  // atak / opadanie
+  vuLvl += (vuTgt - vuLvl) * (1 - Math.exp(-dt / tau));
+  const seg = Math.round(vuLvl * 20);
+  if (seg !== vuSeg) { vuSeg = seg; vuEl.style.clipPath = `inset(0 ${(100 - seg * 5).toFixed(1)}% 0 0)`; }
+}
+requestAnimationFrame(vuLoop);
 const fmtCount = n => S.theme === 'spk' ? '00:' + String(n).padStart(2, '0') : String(n);
 
 /* ------------------------------------------------------------ powiadomienie systemowe bez tytułu */

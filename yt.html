@@ -64,9 +64,15 @@ setInterval(() => {
       want.started = true; want.endAt = Date.now() + want.len * 1000;
       player.unMute(); player.setVolume(100);
       state('playing:' + want.len);
-    } else if (st === YT.PlayerState.PLAYING) {
-      if (!waitSince) { waitSince = Date.now(); state('ad'); }     // gra coś innego (reklama) – czekamy wyciszeni
-    } else if (Date.now() - want.t0 > 30000) { state('error:timeout'); want = null; }
+    } else {
+      // reklama: odtwarzacz w stanie „nierozpoczęty”, ale czas płynie (albo gra inne nagranie) – czekamy wyciszeni
+      const moving = want.lastT !== undefined && Math.abs(t - want.lastT) > 0.1;
+      if ((moving && t < want.start - 1.5) || (st === YT.PlayerState.PLAYING && vid !== want.id)) {
+        if (!waitSince) { waitSince = Date.now(); state('ad'); }
+      }
+      want.lastT = t;
+      if (Date.now() - want.t0 > 150000) { state('error:timeout'); want = null; }
+    }
     return;
   }
   if (!want.paused && !want.ended && Date.now() >= want.endAt) { want.ended = true; player.pauseVideo(); state('ended'); }

@@ -14,6 +14,13 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.view.MotionEvent
+import java.io.ByteArrayInputStream
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -42,7 +49,15 @@ class MainActivity : AppCompatActivity() {
         const val PLAYER_URL = "https://filbary.github.io/prywatka/yt.html"
         const val SNIPPET_S = 30
         val QR = Regex("^PRYWATKA2;([A-Za-z0-9_-]{11});(\\d{1,4})$")
+        // adresy reklam blokowane w odtwarzaczu (prywatny użytek)
+        val AD_HOSTS = listOf("doubleclick.net", "googleadservices.com", "googlesyndication.com",
+            "imasdk.googleapis.com", "google-analytics.com", "googletagservices.com")
+        val AD_PATHS = listOf("/pagead/", "/api/stats/ads", "/ptracking", "/get_midroll_", "/youtubei/v1/log_event")
     }
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var skipper: Runnable? = null
+    private var blocked = 0
 
     private var ready = false
     private var current: Pair<String, Int>? = null
@@ -88,16 +103,30 @@ class MainActivity : AppCompatActivity() {
         web.settings.domStorageEnabled = true
         web.settings.mediaPlaybackRequiresUserGesture = false
         web.addJavascriptInterface(Bridge(), "Android")
+        web.settings.setSupportMultipleWindows(false)
         web.webChromeClient = WebChromeClient()
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
+                val u = req.url; val host = u.host ?: ""; val path = u.path ?: ""
+                if (AD_HOSTS.any { host.endsWith(it) } || (host.endsWith("youtube.com") && AD_PATHS.any { path.startsWith(it) })) {
+                    blocked++
+                    return WebResourceResponse("text/plain", "utf-8", 204, "No Content", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+                }
+                return null
+            }
+            // kliknięcie w reklamę nie może otworzyć innej strony
+            override fun shouldOverrideUrlLoading(view: WebView, req: WebResourceRequest): Boolean =
+                req.url.host != "filbary.github.io"
+        }
     }
 
     private fun handleState(s: String) {
         when {
             s == "ready" -> { ready = true; setStatus("Gotowe – zeskanuj kartę", "#33d69f") }
             s == "loading" -> { setStatus("Ładuję…", "#ffc24b"); big.text = "…" }
-            s == "ad" -> { setStatus("Reklama gra bez dźwięku – chwilka…", "#ffc24b"); log("Reklama (wyciszona)") }
+            s == "ad" -> { setStatus("Reklama gra bez dźwięku – chwilka…", "#ffc24b"); log("Reklama (wyciszona), zablokowano zapytań: $blocked"); startSkipper() }
             s.startsWith("playing:") -> {
+                stopSkipper()
                 paused = false; pauseBtn.text = "⏸ Pauza"
                 setStatus("Słuchaj uważnie…", "#33d69f")
                 startCountdown(s.substringAfter(':').toIntOrNull() ?: SNIPPET_S)
@@ -105,8 +134,35 @@ class MainActivity : AppCompatActivity() {
             s == "paused" -> { timer?.cancel(); setStatus("Pauza", "#a59cbb") }
             s == "ended" -> { timer?.cancel(); big.text = "0"; setStatus("Koniec fragmentu", "#a59cbb") }
             s == "stopped" -> { timer?.cancel(); big.text = "" }
-            s.startsWith("error") -> { timer?.cancel(); setStatus("Błąd: ${s.substringAfter(':')}", "#ff6b6b"); log("Błąd odtwarzacza: $s") }
+            s.startsWith("error") -> { stopSkipper(); timer?.cancel(); setStatus("Błąd: ${s.substringAfter(':')}", "#ff6b6b"); log("Błąd odtwarzacza: $s") }
         }
+    }
+
+    // „Pomiń reklamę”: przycisk pojawia się po ~5 s w prawym dolnym rogu odtwarzacza – stukamy w niego co sekundę
+    private fun startSkipper() {
+        stopSkipper()
+        var n = 0
+        val r = object : Runnable {
+            override fun run() {
+                n++
+                if (n >= 6) {
+                    val w = web.width.toFloat(); val h = web.height.toFloat()
+                    val pts = listOf(w * 0.90f to h * 0.80f, w * 0.93f to h * 0.75f, w * 0.88f to h * 0.84f)
+                    val (x, y) = pts[n % pts.size]
+                    tap(x, y)
+                }
+                if (n < 120) handler.postDelayed(this, 1000)
+            }
+        }
+        skipper = r; handler.postDelayed(r, 1000)
+    }
+    private fun stopSkipper() { skipper?.let { handler.removeCallbacks(it) }; skipper = null }
+    private fun tap(x: Float, y: Float) {
+        val t = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0)
+        web.dispatchTouchEvent(down); web.dispatchTouchEvent(up)
+        down.recycle(); up.recycle()
     }
 
     private fun js(code: String) = web.evaluateJavascript(code, null)
@@ -190,7 +246,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(full(button("▶ Graj kod") { playFromInput() }))
 
         // ukryty odtwarzacz: WebView pod nieprzezroczystą planszą
-        val holder = FrameLayout(this).apply { layoutParams = LinearLayout.LayoutParams(px(160), px(90)).apply { topMargin = px(14) } }
+        val holder = FrameLayout(this).apply { layoutParams = LinearLayout.LayoutParams(px(320), px(180)).apply { topMargin = px(14) } }
         web = WebView(this).apply { layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT) }
         holder.addView(web)
         holder.addView(TextView(this).apply {

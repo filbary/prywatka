@@ -97,6 +97,7 @@ button:focus:not(:focus-visible){outline:none}
 .title{font-family:'Unbounded',sans-serif;font-weight:800;font-size:clamp(24px,8vw,34px);line-height:1.08;letter-spacing:-1px;margin-top:12px;text-wrap:balance;overflow-wrap:anywhere}
 .artist{font-size:19px;font-weight:600;color:#ddd5ff;margin-top:10px}
 .sep{height:1px;background:rgba(255,255,255,.12);margin:18px 20px 14px}
+.year{font-family:'Unbounded',sans-serif;font-weight:800;font-size:46px;line-height:1;letter-spacing:-1.5px;color:var(--gold);text-shadow:0 0 24px rgba(255,209,102,.45)}
 .note{display:flex;align-items:center;justify-content:center;gap:10px;font-size:15px;color:var(--mut)}
 .note svg{width:20px;height:20px;flex:none}
 .mid{display:flex;justify-content:center;padding-top:18px;flex:1 1 auto;align-items:flex-end}

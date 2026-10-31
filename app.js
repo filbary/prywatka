@@ -1,6 +1,10 @@
 /* Prywatka – aplikacja (YouTube w ukrytym odtwarzaczu, kula disco, skaner QR) */
 'use strict';
-const QR_RE = /^PRYWATKA2;([A-Za-z0-9_-]{11});(\d{1,4})$/;
+// kod karty: PRYWATKA2;<ID YouTube>;<start w s>[;<rok>]  – rok zapisany jako (rok-1900) w systemie 36 (np. 1975 → „23”),
+// żeby zwykły aparat w telefonie nie zdradzał go wprost
+const QR_RE = /^PRYWATKA2;([A-Za-z0-9_-]{11});(\d{1,4})(?:;([0-9A-Za-z]{1,3}))?$/;
+const decYear = s => { const y = s ? parseInt(s, 36) + 1900 : NaN; return y > 1900 && y < 2100 ? y : null; };
+const encYear = y => (y - 1900).toString(36).toUpperCase();
 const $ = s => document.querySelector(s);
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('pry.' + k)); } catch (e) { return null; } },
@@ -18,18 +22,25 @@ function log(msg, ok = true) {
   li.textContent = new Date().toLocaleTimeString('pl-PL') + '  ' + msg;
   const ol = $('#log'); ol.prepend(li); while (ol.children.length > 40) ol.lastChild.remove();
 }
-function pstate(txt, ok) { const p = $('#pstate'); p.querySelector('span').textContent = txt; p.classList.toggle('ok', !!ok); }
 
 /* ------------------------------------------------------------ kula disco */
 const ballEl = $('#ball'), ball = new DiscoBall($('#ballCanvas'));
 const SPEED = { home: 7, play: 26, reveal: 4 };
+let lastRect = '';
+function trackBall() {
+  const slot = document.querySelector(`#${S.view} .slot`);
+  if (slot) { const r = slot.getBoundingClientRect(); const k = [r.left, r.top, r.width].map(Math.round).join(','); if (k !== lastRect) placeBall(); }
+  requestAnimationFrame(trackBall);
+}
 function placeBall() {
   const slot = document.querySelector(`#${S.view} .slot`);
   if (!slot) { ballEl.hidden = true; return; }
   const r = slot.getBoundingClientRect();
   ballEl.hidden = false;
+  lastRect = [r.left, r.top, r.width].map(Math.round).join(',');
+  const sizeChanged = ballEl.style.width !== r.width + 'px';
   Object.assign(ballEl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
-  ball.resize();
+  if (sizeChanged) ball.resize();
 }
 function show(id) {
   S.view = id;
@@ -59,7 +70,7 @@ window.onYouTubeIframeAPIReady = () => {
     width: '220', height: '124',
     playerVars: { playsinline: 1, controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, fs: 0, modestbranding: 1 },
     events: {
-      onReady: () => { S.ready = true; pstate('gotowe', true); log('Odtwarzacz YouTube gotowy'); },
+      onReady: () => { S.ready = true; log('Odtwarzacz YouTube gotowy'); },
       onError: e => { const m = { 2: 'złe ID', 5: 'błąd odtwarzacza', 100: 'nagranie usunięte', 101: 'zakaz osadzania', 150: 'zakaz osadzania' }[e.data] || e.data;
         log('Błąd YouTube: ' + m, false); setWait('Nie można odtworzyć: ' + m); S.want = null; setToggle('ended'); },
     }
@@ -75,8 +86,8 @@ function setToggle(state) {           // playing | paused | ended
 }
 function setArc(frac) { $('#arc').style.strokeDashoffset = 917.3 * (1 - Math.max(0, Math.min(1, frac))); }
 
-function play(id, start, newCard = false) {
-  if (newCard) { S.cards++; $('#cardNo').textContent = $('#cardNo2').textContent = 'Karta ' + S.cards; }
+function play(id, start, newCard = false, year = null) {
+  if (newCard) { S.year = year; S.cards++; $('#cardNo').textContent = $('#cardNo2').textContent = 'Karta ' + S.cards; }
   S.cur = { id, start };
   show('vPlay');
   if (!S.ready) { setWait('Odtwarzacz jeszcze się ładuje – spróbuj za chwilę'); return; }
@@ -119,6 +130,7 @@ function reveal() {
   if (m && (!artist || m[1].toLowerCase().includes(artist.toLowerCase().slice(0, 4)))) { artist = m[1]; title = m[2]; }
   $('#rTitle').textContent = title || '(brak tytułu)';
   $('#rArtist').textContent = artist;
+  $('#rYear').textContent = S.year || ''; $('#rYear').hidden = !S.year; $('#rNote').hidden = !!S.year;
   show('vReveal');
 }
 
@@ -179,7 +191,7 @@ async function scanLoop() {
   }
   if (text) {
     const m = text.trim().match(QR_RE);
-    if (m) { navigator.vibrate?.(60); stopScan(); play(m[1], +m[2], true); return; }
+    if (m) { navigator.vibrate?.(60); stopScan(); play(m[1], +m[2], true, decYear(m[3])); return; }
     $('#scanMsg').textContent = 'To nie jest karta Prywatki';
   }
   setTimeout(scanLoop, detector ? 120 : 180);
@@ -213,11 +225,11 @@ function bind() {
   $('#nextBtn').onclick = startScan;
   $('#nextBtn2').onclick = startScan;
   document.querySelectorAll('#lenSeg button').forEach(b => b.onclick = () => { S.len = +b.dataset.v; store.set('len2', S.len); renderLen(); });
-  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true); } else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
-  $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}`); };
+  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true, decYear(m[3])); } else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
+  $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); const y = +$('#linkYear').value; showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}` + (y > 1900 && y < 2100 ? ';' + encYear(y) : '')); };
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-bind(); renderLen(); setToggle('playing'); show('vHome'); ball.start(); keepAwake(); pstate('ładowanie');
-$('#manual').value = 'PRYWATKA2;BSTsnWoslP4;149';
+bind(); renderLen(); setToggle('playing'); show('vHome'); ball.start(); keepAwake(); trackBall();
+$('#manual').value = 'PRYWATKA2;BSTsnWoslP4;149;' + encYear(1975);
 document.fonts?.ready.then(() => requestAnimationFrame(placeBall));

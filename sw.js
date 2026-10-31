@@ -1,5 +1,5 @@
 // Prywatka – service worker: pliki aplikacji z pamięci podręcznej, gdy brak sieci; YouTube zawsze z sieci.
-const CACHE = 'prywatka-v5';
+const CACHE = 'prywatka-v6';
 const FILES = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'vendor/jsQR.js', 'vendor/qrcode.js', 'ball.js'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });

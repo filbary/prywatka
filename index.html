@@ -12,7 +12,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@500;600;700&family=Rubik:wght@500;700;800;900&family=Share+Tech+Mono&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -36,10 +36,16 @@
   <svg class="tw" style="left:12%;top:63%;width:7%;animation-delay:-0.6s" viewBox="0 0 34 34"><path d="M17 0C18 12 22 16 34 17 22 18 18 22 17 34 16 22 12 18 0 17 12 16 16 12 17 0Z" fill="#fff0c7"/></svg>
 </div>
 
+<!-- głośnik (motyw „Głośnik”, przenoszony między ekranami jak kula) -->
+<div id="spk" class="spk spin" aria-hidden="true" hidden>
+  <i class="sg"></i><i class="sr"></i><i class="sd"></i><i class="sb"></i><i class="ss"></i>
+  <div class="sc"><i class="scone"></i><i class="scap"></i><i class="scapc"></i><i class="shl"></i></div>
+</div>
+
 <!-- START -->
 <section id="vHome" class="view" hidden>
   <header class="top">
-    <div class="logo">Prywatka</div>
+    <div class="logo"><span>P</span><span>r</span><span>y</span><span>w</span><span>a</span><span>t</span><span>k</span><span>a</span></div>
     <div class="topR">
       <button class="icon" id="setBtn" aria-label="Ustawienia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
     </div>
@@ -50,7 +56,7 @@
     <div class="floorglow"></div>
   </div>
   <div class="copy">
-    <h1>Parkiet czeka!</h1>
+    <h1><span class="t-disco">Parkiet czeka!</span><span class="t-spk">Podkręć<br><span class="rb">głośność!</span></span></h1>
     <p>Zeskanuj kartę i zgadnij, z którego roku jest ten hit.</p>
   </div>
   <div class="actions">
@@ -82,7 +88,7 @@
     <svg class="ring" viewBox="0 0 320 320"><circle cx="160" cy="160" r="146" class="rbg"/><circle id="arc" cx="160" cy="160" r="146" class="rfg"/></svg>
     <div class="slot" data-slot="play"></div>
   </div>
-  <div class="count"><div id="count">…</div><div id="wait" class="wait"></div></div>
+  <div class="count"><div id="count">…</div><div class="vu" aria-hidden="true"><div class="vud"></div><div class="vul"><div></div></div></div><div id="wait" class="wait"></div></div>
   <div class="controls">
     <button class="ctl" id="againBtn"><span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></span>Powtórz</button>
     <button class="ctl main" id="toggleBtn"><span id="toggleIco"></span><b id="toggleTxt">Stop</b></button>
@@ -99,12 +105,14 @@
   </header>
   <div class="stage reveal"><div class="string short"></div><div class="slot" data-slot="reveal"></div></div>
   <div class="card">
+    <div class="vfdtop" aria-hidden="true"><span>● Odkryte</span><span>Stereo</span><span id="cardNo3">Karta 1</span></div>
     <div class="eyebrow">Teraz grało</div>
     <div class="title" id="rTitle">—</div>
     <div class="artist" id="rArtist"></div>
     <div class="sep"></div>
     <div class="year" id="rYear" hidden></div>
     <div class="note" id="rNote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 7h6M9 11h6"/></svg>Rok sprawdzisz na rewersie karty</div>
+    <div class="spec" aria-hidden="true"></div>
   </div>
   <div class="mid"><button class="pillbtn" id="againBtn2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Powtórz fragment</button></div>
   <div class="actions"><button class="cta" id="nextBtn2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>Następna karta</button></div>
@@ -113,6 +121,9 @@
 <!-- USTAWIENIA -->
 <dialog id="setDlg" class="sheet">
   <div class="sheetHead"><b>Ustawienia</b><button class="icon" data-close aria-label="Zamknij"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="field"><span>Motyw</span>
+    <span class="seg two" id="themeSeg"><button data-v="disco">Kula disco</button><button data-v="spk">Głośnik</button></span>
+  </div>
   <div class="field"><span>Długość fragmentu</span>
     <span class="seg" id="lenSeg"><button data-v="10">10 s</button><button data-v="15">15 s</button><button data-v="20">20 s</button><button data-v="30">30 s</button></span>
   </div>

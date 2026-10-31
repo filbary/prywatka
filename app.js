@@ -10,7 +10,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('pry.' + k)); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem('pry.' + k, JSON.stringify(v)); } catch (e) {} },
 };
-const S = { player: null, ready: false, len: store.get('len2') || 15, cur: null, want: null,
+const S = { player: null, ready: false, len: store.get('len2') || 15, theme: store.get('theme') === 'spk' ? 'spk' : 'disco', cur: null, want: null,
   stream: null, scanning: false, total: 15, cards: 0, view: 'vHome' };
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>';
 const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
@@ -24,7 +24,8 @@ function log(msg, ok = true) {
 }
 
 /* ------------------------------------------------------------ kula disco */
-const ballEl = $('#ball'), ball = new DiscoBall($('#ballCanvas'));
+const ballEl = $('#ball'), ball = new DiscoBall($('#ballCanvas')), spkEl = $('#spk');
+const orb = () => S.theme === 'spk' ? spkEl : ballEl;      // element na środku sceny w bieżącym motywie
 const SPEED = { home: 7, play: 26, reveal: 4 };
 let lastRect = '';
 function trackBall() {
@@ -33,25 +34,47 @@ function trackBall() {
   requestAnimationFrame(trackBall);
 }
 function placeBall() {
-  const slot = document.querySelector(`#${S.view} .slot`);
-  if (!slot) { ballEl.hidden = true; return; }
+  const slot = document.querySelector(`#${S.view} .slot`), el = orb();
+  (el === ballEl ? spkEl : ballEl).hidden = true;
+  if (!slot) { el.hidden = true; return; }
   const r = slot.getBoundingClientRect();
-  ballEl.hidden = false;
+  el.hidden = false;
   lastRect = [r.left, r.top, r.width].map(Math.round).join(',');
-  const sizeChanged = ballEl.style.width !== r.width + 'px';
-  Object.assign(ballEl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
-  if (sizeChanged) ball.resize();
+  const sizeChanged = el.style.width !== r.width + 'px';
+  Object.assign(el.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+  if (sizeChanged && el === ballEl) ball.resize();
 }
 function show(id) {
   S.view = id;
   document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== id);
   const mode = { vHome: 'home', vPlay: 'play', vReveal: 'reveal' }[id];
   ballEl.classList.toggle('hot', id === 'vPlay'); ballEl.classList.toggle('gold', id === 'vReveal');
+  spkEl.classList.toggle('count', id === 'vPlay'); spkEl.classList.toggle('spin', id !== 'vPlay');
   if (mode) ball.setSpeed(SPEED[mode]);
   document.documentElement.style.setProperty('--beams', id === 'vPlay' ? '16s' : '40s');
   placeBall(); requestAnimationFrame(placeBall); setTimeout(placeBall, 300);
 }
 window.addEventListener('resize', () => requestAnimationFrame(placeBall));
+
+/* ------------------------------------------------------------ motywy */
+function buildDecor() {
+  const C = ['#ff3b5c', '#ff8a2e', '#ffd23f', '#2fe08a', '#2ad4ff', '#3d7bff', '#b46bff'];
+  const seg = i => i < 12 ? '#2fe08a' : i < 16 ? '#ffd23f' : i < 18 ? '#ff8a2e' : '#ff3b5c';     // pasek głośności
+  const bars = Array.from({ length: 20 }, (_, i) => `<i style="--c:${seg(i)}"></i>`).join('');
+  document.querySelector('.vud').innerHTML = bars; document.querySelector('.vul div').innerHTML = bars;
+  document.querySelector('.spec').innerHTML = Array.from({ length: 16 }, (_, i) =>
+    `<i style="--c:${C[Math.floor(i / 16 * 7)]};animation-duration:${(0.7 + 0.07 * (i % 5)).toFixed(2)}s;animation-delay:${(-0.13 * i).toFixed(2)}s"></i>`).join('');
+}
+function applyTheme(t) {
+  S.theme = t; store.set('theme', t);
+  document.body.classList.toggle('theme-spk', t === 'spk');
+  document.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
+  document.querySelector('meta[name=theme-color]').content = t === 'spk' ? '#0d0b18' : '#150e33';
+  if (t === 'spk') ball.stop(); else ball.start();
+  if (S.want && S.want.started) $('#count').textContent = fmtCount(Math.ceil(Math.max(0, (S.want.endAt - Date.now()) / 1000)));
+  lastRect = ''; placeBall();
+}
+const fmtCount = n => S.theme === 'spk' ? '00:' + String(n).padStart(2, '0') : String(n);
 
 /* ------------------------------------------------------------ powiadomienie systemowe bez tytułu */
 function neutralMediaSession() {
@@ -84,15 +107,19 @@ function setToggle(state) {           // playing | paused | ended
   $('#toggleBtn').setAttribute('aria-label', state === 'playing' ? 'Zatrzymaj' : 'Odtwórz');
   ball.setSpeed(state === 'playing' ? SPEED.play : (S.view === 'vReveal' ? SPEED.reveal : 5));
 }
-function setArc(frac) { $('#arc').style.strokeDashoffset = 917.3 * (1 - Math.max(0, Math.min(1, frac))); }
+function setArc(frac) {
+  frac = Math.max(0, Math.min(1, frac));
+  $('#arc').style.strokeDashoffset = 917.3 * (1 - frac);
+  spkEl.style.setProperty('--lit', (360 * frac).toFixed(1) + 'deg');
+}
 
 function play(id, start, newCard = false, year = null) {
-  if (newCard) { S.year = year; S.cards++; $('#cardNo').textContent = $('#cardNo2').textContent = 'Karta ' + S.cards; }
+  if (newCard) { S.year = year; S.cards++; $('#cardNo').textContent = $('#cardNo2').textContent = $('#cardNo3').textContent = 'Karta ' + S.cards; }
   S.cur = { id, start };
   show('vPlay');
   if (!S.ready) { setWait('Odtwarzacz jeszcze się ładuje – spróbuj za chwilę'); return; }
   S.want = { id, start, len: S.len, started: false, t0: Date.now(), ad: false };
-  $('#count').textContent = S.len; setArc(1); setWait('Ładuję…'); setToggle('playing');
+  $('#count').textContent = fmtCount(S.len); setArc(1); setWait('Ładuję…'); setToggle('playing');
   const p = S.player;
   p.mute(); p.setVolume(100);           // do startu właściwego nagrania – reklama gra bez dźwięku
   const cur = p.getVideoData && p.getVideoData().video_id;
@@ -137,6 +164,7 @@ function reveal() {
 // pętla: wykrywa reklamę, włącza dźwięk przy starcie nagrania, odlicza i zatrzymuje
 setInterval(() => {
   const w = S.want, p = S.player;
+  document.body.classList.toggle('live', !!(w && w.started && !w.paused && !w.ended));   // muzyka gra → głośnik i pasek „żyją”
   if (!w || !p || !p.getPlayerState) return;
   const st = p.getPlayerState(), t = p.getCurrentTime(), vid = (p.getVideoData() || {}).video_id;
   if (!w.started) {
@@ -157,7 +185,7 @@ setInterval(() => {
   }
   if (w.paused || w.ended) return;
   const left = Math.max(0, (w.endAt - Date.now()) / 1000);
-  $('#count').textContent = Math.ceil(left); setArc(left / S.total);
+  $('#count').textContent = fmtCount(Math.ceil(left)); setArc(left / S.total);
   if (left < 1.2) p.setVolume(Math.round(left / 1.2 * 100));           // łagodne wyciszenie na końcu
   if (left <= 0) { w.ended = true; p.pauseVideo(); p.setVolume(100); setToggle('ended'); navigator.vibrate?.([40, 60, 40]); }
 }, 120);
@@ -224,12 +252,13 @@ function bind() {
   $('#revealBtn').onclick = reveal;
   $('#nextBtn').onclick = startScan;
   $('#nextBtn2').onclick = startScan;
+  document.querySelectorAll('#themeSeg button').forEach(b => b.onclick = () => applyTheme(b.dataset.v));
   document.querySelectorAll('#lenSeg button').forEach(b => b.onclick = () => { S.len = +b.dataset.v; store.set('len2', S.len); renderLen(); });
   $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true, decYear(m[3])); } else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
   $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); const y = +$('#linkYear').value; showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}` + (y > 1900 && y < 2100 ? ';' + encYear(y) : '')); };
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-bind(); renderLen(); setToggle('playing'); show('vHome'); ball.start(); keepAwake(); trackBall();
+bind(); renderLen(); buildDecor(); setToggle('playing'); show('vHome'); applyTheme(S.theme); keepAwake(); trackBall();
 $('#manual').value = 'PRYWATKA2;BSTsnWoslP4;149;' + encYear(1975);
 document.fonts?.ready.then(() => requestAnimationFrame(placeBall));

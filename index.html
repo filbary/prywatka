@@ -16,36 +16,27 @@
 <body>
 <header class="bar">
   <b>Prywatka</b>
-  <button id="devBtn" class="dev" hidden>🔈 <span id="devName">—</span></button>
+  <span id="pstate" class="pill">ładowanie…</span>
 </header>
-
-<!-- logowanie -->
-<section id="vLogin" class="view" hidden>
-  <h1>Prywatka</h1>
-  <p>Zaloguj się kontem Spotify Premium, na którym będzie grać muzyka.</p>
-  <button id="loginBtn" class="big">Zaloguj ze Spotify</button>
-  <p class="hint">Ten adres musi być wpisany w ustawieniach aplikacji w Spotify (Redirect URIs):<br><code id="redir"></code></p>
-</section>
 
 <!-- start -->
 <section id="vHome" class="view" hidden>
   <button id="scanBtn" class="big">📷 Skanuj kartę</button>
-  <p class="hint">Upewnij się, że aplikacja Spotify jest otwarta na urządzeniu, które ma grać.</p>
+  <p class="hint">Masz YouTube Premium? Zaloguj się na youtube.com w tej przeglądarce – wtedy nie będzie reklam.</p>
   <details class="tools">
     <summary>Narzędzia testowe</summary>
-    <form id="searchForm" class="row">
-      <input id="q" placeholder="Wykonawca i tytuł" autocomplete="off">
-      <button>Szukaj</button>
-    </form>
-    <ul id="results"></ul>
-    <div id="qrBox" hidden><div id="qrImg"></div><code id="qrTxt"></code></div>
     <form id="manualForm" class="row">
-      <input id="manual" placeholder="PRYWATKA1;ID;sekunda" autocomplete="off">
+      <input id="manual" placeholder="PRYWATKA2;ID;sekunda" autocomplete="off">
       <button>Graj</button>
     </form>
+    <form id="linkForm" class="row">
+      <input id="link" placeholder="Link YouTube" autocomplete="off">
+      <input id="linkSec" type="number" min="0" value="60" aria-label="Start w sekundach" style="max-width:80px">
+      <button>QR</button>
+    </form>
+    <div id="qrBox" hidden><div id="qrImg"></div><code id="qrTxt"></code></div>
     <label class="row">Długość fragmentu
       <select id="lenSel"><option>20</option><option selected>30</option><option>45</option><option>60</option></select> s</label>
-    <button id="logoutBtn" class="ghost">Wyloguj ze Spotify</button>
     <h3>Dziennik</h3>
     <ol id="log"></ol>
   </details>
@@ -60,8 +51,8 @@
 
 <!-- odtwarzanie -->
 <section id="vPlay" class="view" hidden>
-  <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" class="bg"/><circle id="arc" cx="60" cy="60" r="54" class="fg"/></svg><div id="count">30</div></div>
-  <p id="playMsg" class="hint">Słuchaj uważnie…</p>
+  <div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" class="bg"/><circle id="arc" cx="60" cy="60" r="54" class="fg"/></svg><div id="count">…</div></div>
+  <p id="playMsg" class="hint">Ładuję…</p>
   <div class="grid">
     <button id="againBtn">↺ Powtórz</button>
     <button id="moreBtn">+15 s</button>
@@ -72,21 +63,13 @@
   <button id="nextBtn" class="big">📷 Następna karta</button>
 </section>
 
-<!-- wybór urządzenia -->
-<dialog id="devDlg">
-  <h3>Gdzie grać?</h3>
-  <ul id="devList"></ul>
-  <p class="hint">Nie widzisz telefonu? Otwórz aplikację Spotify i odśwież.</p>
-  <div class="row">
-    <a class="btn" href="spotify:">Otwórz Spotify</a>
-    <button id="devRefresh">Odśwież</button>
-    <button id="devClose" class="ghost">Zamknij</button>
-  </div>
-</dialog>
+<!-- ukryty odtwarzacz YouTube (zasłonięty planszą) -->
+<div class="player"><div id="yt"></div><div class="cover">🎵</div></div>
 
 <div id="toast" hidden></div>
 <script src="vendor/jsQR.js"></script>
 <script src="vendor/qrcode.js"></script>
 <script src="app.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
 </body>
 </html>

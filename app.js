@@ -1,19 +1,13 @@
-/* Prywatka – wersja funkcjonalna (test Spotify + QR) */
+/* Prywatka – wersja webowa z YouTube (odtwarzacz ukryty pod planszą) */
 'use strict';
-const CLIENT_ID = '9f67b91656e04184a410b44f5b2d5d4a';
-const SCOPES = 'user-read-playback-state user-modify-playback-state';
-const REDIRECT = location.origin + location.pathname.replace(/index\.html$/, '');
-const API = 'https://api.spotify.com/v1';
-const QR_RE = /^(?:PRYWATKA1|KARTKI1);([A-Za-z0-9]{22});(\d{1,4})$/;
-
+const QR_RE = /^PRYWATKA2;([A-Za-z0-9_-]{11});(\d{1,4})$/;
 const $ = s => document.querySelector(s);
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('pry.' + k)); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem('pry.' + k, JSON.stringify(v)); } catch (e) {} },
-  del: k => { try { localStorage.removeItem('pry.' + k); } catch (e) {} },
 };
-const S = { token: store.get('token'), device: store.get('device'), len: store.get('len') || 30,
-  cur: null, timer: null, endsAt: 0, paused: false, remaining: 0, stream: null, scanning: false };
+const S = { player: null, ready: false, len: store.get('len') || 30, cur: null, want: null,
+  stream: null, scanning: false, total: 30 };
 
 /* ------------------------------------------------------------ UI pomocnicze */
 function show(id) { document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== id); }
@@ -23,145 +17,105 @@ function log(msg, ok = true) {
   li.textContent = new Date().toLocaleTimeString('pl-PL') + '  ' + msg;
   const ol = $('#log'); ol.prepend(li); while (ol.children.length > 40) ol.lastChild.remove();
 }
-
-/* ------------------------------------------------------------ logowanie (PKCE) */
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-async function login() {
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
-  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  store.set('verifier', verifier);
-  const p = new URLSearchParams({ response_type: 'code', client_id: CLIENT_ID, scope: SCOPES,
-    redirect_uri: REDIRECT, code_challenge_method: 'S256', code_challenge: challenge });
-  location.href = 'https://accounts.spotify.com/authorize?' + p;
-}
-async function tokenRequest(params) {
-  const r = await fetch('https://accounts.spotify.com/api/token', { method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: CLIENT_ID, ...params }) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error_description || j.error || r.status);
-  S.token = { access: j.access_token, refresh: j.refresh_token || S.token?.refresh, exp: Date.now() + (j.expires_in - 60) * 1000 };
-  store.set('token', S.token);
-}
-async function handleRedirect() {
-  const q = new URLSearchParams(location.search);
-  if (q.get('error')) { toast('Logowanie przerwane: ' + q.get('error')); history.replaceState(null, '', REDIRECT); return; }
-  if (!q.get('code')) return;
-  try {
-    await tokenRequest({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: REDIRECT, code_verifier: store.get('verifier') });
-    log('Zalogowano do Spotify');
-  } catch (e) { toast('Błąd logowania: ' + e.message); log('Logowanie: ' + e.message, false); }
-  history.replaceState(null, '', REDIRECT);
-}
-function logout() { S.token = null; store.del('token'); store.del('device'); S.device = null; boot(); }
-
-/* ------------------------------------------------------------ Spotify API */
-async function api(method, path, body, retry = true) {
-  if (!S.token) throw new Error('Brak logowania');
-  if (Date.now() > S.token.exp) await tokenRequest({ grant_type: 'refresh_token', refresh_token: S.token.refresh });
-  const r = await fetch(API + path, { method, headers: { Authorization: 'Bearer ' + S.token.access,
-    ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  if (r.status === 401 && retry) { await tokenRequest({ grant_type: 'refresh_token', refresh_token: S.token.refresh }); return api(method, path, body, false); }
-  const txt = await r.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) {}
-  const short = path.split('?')[0];
-  if (!r.ok) {
-    const msg = j?.error?.message || txt || r.statusText;
-    log(`${method} ${short} → ${r.status} ${msg}`, false);
-    const err = new Error(msg); err.status = r.status; err.reason = j?.error?.reason; throw err;
-  }
-  log(`${method} ${short} → ${r.status}`);
-  return j;
-}
-
-/* ------------------------------------------------------------ urządzenia */
-async function loadDevices() {
-  const j = await api('GET', '/me/player/devices');
-  return j?.devices || [];
-}
-function setDevice(d) { S.device = d ? { id: d.id, name: d.name, type: d.type } : null; store.set('device', S.device); $('#devName').textContent = S.device ? S.device.name : 'wybierz urządzenie'; }
-async function pickDevice(open = true) {
-  let devs = [];
-  try { devs = await loadDevices(); } catch (e) { toast('Nie udało się pobrać urządzeń: ' + e.message); }
-  const known = devs.find(d => d.id === S.device?.id);
-  if (known) setDevice(known);
-  else if (devs.length) setDevice(devs.find(d => d.is_active) || devs.find(d => d.type === 'Smartphone') || devs[0]);
-  if (open || !S.device || !known && !devs.length) {
-    $('#devList').innerHTML = devs.map((d, i) => `<li><button data-i="${i}" class="${d.id === S.device?.id ? 'on' : ''}">${d.type === 'Smartphone' ? '📱' : d.type === 'Computer' ? '💻' : '🔊'} ${esc(d.name)}${d.is_active ? ' · aktywne' : ''}</button></li>`).join('')
-      || '<li class="hint">Brak dostępnych urządzeń.</li>';
-    $('#devList').onclick = e => { const b = e.target.closest('button[data-i]'); if (b) { setDevice(devs[+b.dataset.i]); $('#devDlg').close(); } };
-    if (!$('#devDlg').open) $('#devDlg').showModal();
-  }
-  return devs;
-}
+function pstate(txt, cls = '') { const p = $('#pstate'); p.textContent = txt; p.className = 'pill ' + cls; }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/* ------------------------------------------------------------ odtwarzanie */
-async function play(trackId, startSec) {
-  S.cur = { id: trackId, start: startSec };
-  $('#reveal').hidden = true; $('#reveal').textContent = '';
-  show('vPlay'); $('#playMsg').textContent = 'Uruchamiam…';
-  if (!S.device) { await pickDevice(true); if (!S.device) return; }
-  const body = { uris: ['spotify:track:' + trackId], position_ms: startSec * 1000 };
+/* ------------------------------------------------------------ powiadomienie systemowe bez tytułu */
+function neutralMediaSession() {
+  if (!('mediaSession' in navigator)) return;
   try {
-    await api('PUT', '/me/player/play?device_id=' + encodeURIComponent(S.device.id), body);
-  } catch (e) {
-    if (e.status === 404) {          // urządzenie uśpione – spróbuj je przebudzić
-      try {
-        await api('PUT', '/me/player', { device_ids: [S.device.id], play: false });
-        await new Promise(r => setTimeout(r, 800));
-        await api('PUT', '/me/player/play?device_id=' + encodeURIComponent(S.device.id), body);
-      } catch (e2) { $('#playMsg').textContent = 'Nie widzę urządzenia. Otwórz Spotify i spróbuj ponownie.'; pickDevice(true); return; }
-    } else if (e.status === 403) { $('#playMsg').textContent = 'Spotify odmówił odtwarzania (403): ' + e.message; return; }
-    else { $('#playMsg').textContent = 'Błąd: ' + e.message; return; }
-  }
-  startTimer(S.len);
-  $('#playMsg').textContent = 'Słuchaj uważnie…';
-  $('#pauseBtn').textContent = '⏸ Pauza'; S.paused = false;
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Prywatka', artist: 'Zgadnij, z którego roku!',
+      artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] });
+    navigator.mediaSession.setActionHandler('play', () => resume());
+    navigator.mediaSession.setActionHandler('pause', () => pause());
+  } catch (e) {}
 }
-function startTimer(sec) {
-  clearInterval(S.timer); S.total = sec; S.endsAt = Date.now() + sec * 1000; tick();
-  S.timer = setInterval(tick, 200);
+
+/* ------------------------------------------------------------ odtwarzacz YouTube */
+window.onYouTubeIframeAPIReady = () => {
+  S.player = new YT.Player('yt', {
+    width: '320', height: '180',
+    playerVars: { playsinline: 1, controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, fs: 0, modestbranding: 1 },
+    events: {
+      onReady: () => { S.ready = true; pstate('gotowe', 'ok'); log('Odtwarzacz YouTube gotowy'); },
+      onError: e => { const m = { 2: 'złe ID', 5: 'błąd odtwarzacza', 100: 'nagranie usunięte', 101: 'zakaz osadzania', 150: 'zakaz osadzania' }[e.data] || e.data;
+        log('Błąd YouTube: ' + m, false); $('#playMsg').textContent = 'Nie można odtworzyć: ' + m; S.want = null; },
+    }
+  });
+};
+
+function play(id, start) {
+  S.cur = { id, start };
+  $('#reveal').hidden = true; show('vPlay');
+  if (!S.ready) { $('#playMsg').textContent = 'Odtwarzacz jeszcze się ładuje – spróbuj za chwilę.'; return; }
+  S.want = { id, start, len: S.len, started: false, t0: Date.now(), ad: false };
+  $('#count').textContent = '…'; setArc(1); $('#playMsg').textContent = 'Ładuję…';
+  $('#pauseBtn').textContent = '⏸ Pauza';
+  const p = S.player;
+  p.mute();                                          // do czasu startu właściwego nagrania – reklama gra bez dźwięku
+  const cur = p.getVideoData && p.getVideoData().video_id;
+  if (cur === id) { p.seekTo(start, true); p.playVideo(); }
+  else p.loadVideoById({ videoId: id, startSeconds: start });
+  neutralMediaSession();
+  log(`Graj ${id} od ${start}s`);
 }
-function tick() {
-  const left = Math.max(0, (S.endsAt - Date.now()) / 1000);
-  $('#count').textContent = Math.ceil(left);
-  const C = 2 * Math.PI * 54; $('#arc').style.strokeDasharray = C; $('#arc').style.strokeDashoffset = C * (1 - left / S.total);
-  if (left <= 0) { clearInterval(S.timer); S.timer = null; stopPlayback('Koniec fragmentu.'); }
+function pause() {
+  const w = S.want; if (!w) return;
+  if (w.started && !w.paused && !w.ended) { w.left = Math.max(0, w.endAt - Date.now()); w.paused = true; }
+  S.player.pauseVideo(); $('#playMsg').textContent = 'Pauza.'; $('#pauseBtn').textContent = '▶ Wznów';
 }
-async function stopPlayback(msg) {
-  try { await api('PUT', '/me/player/pause?device_id=' + encodeURIComponent(S.device.id)); } catch (e) {}
-  $('#playMsg').textContent = msg || 'Zatrzymano.';
+function resume() {
+  const w = S.want; if (!w || !w.paused) return;
+  w.paused = false; w.endAt = Date.now() + w.left; S.total = w.left / 1000;
+  S.player.playVideo(); $('#playMsg').textContent = 'Słuchaj uważnie…'; $('#pauseBtn').textContent = '⏸ Pauza';
 }
-async function togglePause() {
-  if (!S.cur) return;
-  if (!S.paused) {
-    S.remaining = Math.max(0, (S.endsAt - Date.now()) / 1000); clearInterval(S.timer); S.timer = null;
-    await stopPlayback('Pauza.'); S.paused = true; $('#pauseBtn').textContent = '▶ Wznów';
-  } else {
-    try { await api('PUT', '/me/player/play?device_id=' + encodeURIComponent(S.device.id)); } catch (e) { return; }
-    S.paused = false; $('#pauseBtn').textContent = '⏸ Pauza'; $('#playMsg').textContent = 'Słuchaj uważnie…';
-    S.total = S.remaining || 1; S.endsAt = Date.now() + S.remaining * 1000; S.timer = setInterval(tick, 200);
-  }
+function more() {
+  const w = S.want; if (!w || !w.started) return;
+  const left = w.paused ? w.left : Math.max(0, w.endAt - Date.now());
+  w.paused = false; w.ended = false; w.endAt = Date.now() + left + 15000; S.total = (left + 15000) / 1000;
+  S.player.playVideo(); $('#playMsg').textContent = 'Słuchaj uważnie…'; $('#pauseBtn').textContent = '⏸ Pauza';
 }
-async function more() {
-  if (!S.cur) return;
-  const left = Math.max(0, (S.endsAt - Date.now()) / 1000);
-  if (!S.timer) { try { await api('PUT', '/me/player/play?device_id=' + encodeURIComponent(S.device.id)); } catch (e) { return; } }
-  S.paused = false; $('#pauseBtn').textContent = '⏸ Pauza'; $('#playMsg').textContent = 'Słuchaj uważnie…';
-  startTimer(left + 15);
-}
-async function reveal() {
-  if (!S.cur) return;
-  try {
-    const t = await api('GET', '/tracks/' + S.cur.id);
-    $('#reveal').innerHTML = `<b>${esc(t.artists.map(a => a.name).join(', '))}</b><br>${esc(t.name)}<br><small>album: ${esc(t.album.name)} · wydanie albumu: ${esc(t.album.release_date)}</small>`;
-  } catch (e) { $('#reveal').textContent = 'Nie udało się pobrać informacji: ' + e.message; }
+function reveal() {
+  const d = S.player && S.player.getVideoData ? S.player.getVideoData() : {};
+  $('#reveal').innerHTML = `<b>${esc(d.title || '(brak tytułu)')}</b>${d.author ? '<br><small>' + esc(d.author) + '</small>' : ''}`;
   $('#reveal').hidden = false;
 }
+function setArc(frac) { const C = 2 * Math.PI * 54; $('#arc').style.strokeDasharray = C; $('#arc').style.strokeDashoffset = C * (1 - frac); }
+
+// pętla: wykrywa reklamę, włącza dźwięk przy starcie nagrania, zatrzymuje po fragmencie
+setInterval(() => {
+  const w = S.want, p = S.player;
+  if (!w || !p || !p.getPlayerState) return;
+  const st = p.getPlayerState(), t = p.getCurrentTime(), vid = (p.getVideoData() || {}).video_id;
+  if (!w.started) {
+    if (st === YT.PlayerState.PLAYING && vid === w.id && t >= w.start - 1.5 && t < w.start + 20) {
+      w.started = true; w.endAt = Date.now() + w.len * 1000; S.total = w.len;
+      p.unMute(); p.setVolume(100); neutralMediaSession();
+      $('#playMsg').textContent = 'Słuchaj uważnie…';
+      log(w.ad ? `Start po reklamie (${Math.round((Date.now() - w.t0) / 1000)} s)` : 'Start bez reklamy');
+    } else {
+      const moving = w.lastT !== undefined && Math.abs(t - w.lastT) > 0.1;
+      if (!w.ad && ((moving && t < w.start - 1.5) || (st === YT.PlayerState.PLAYING && vid !== w.id))) {
+        w.ad = true; $('#playMsg').textContent = 'Reklama gra bez dźwięku – chwilka…'; log('Reklama (wyciszona)', false);
+      }
+      w.lastT = t;
+      if (Date.now() - w.t0 > 150000) { $('#playMsg').textContent = 'Nie udało się uruchomić nagrania.'; S.want = null; }
+    }
+    return;
+  }
+  if (w.paused || w.ended) return;
+  const left = Math.max(0, (w.endAt - Date.now()) / 1000);
+  $('#count').textContent = Math.ceil(left); setArc(left / S.total);
+  if (left < 1.2) p.setVolume(Math.round(left / 1.2 * 100));           // łagodne wyciszenie
+  if (left <= 0) { w.ended = true; p.pauseVideo(); p.setVolume(100); $('#playMsg').textContent = 'Koniec fragmentu.'; }
+}, 150);
 
 /* ------------------------------------------------------------ skaner QR */
 let detector = null;
 async function startScan() {
   show('vScan'); $('#scanMsg').textContent = 'Skieruj aparat na kod QR karty.';
+  // „odblokowanie” dźwięku w ramach dotknięcia przycisku (zasady autoodtwarzania przeglądarek)
+  try { if (S.ready) { S.player.mute(); } } catch (e) {}
   try {
     S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
   } catch (e) { $('#scanMsg').textContent = 'Brak dostępu do aparatu: ' + e.message; return; }
@@ -169,10 +123,7 @@ async function startScan() {
   if ('BarcodeDetector' in window) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; } }
   S.scanning = true; scanLoop();
 }
-function stopScan() {
-  S.scanning = false;
-  if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; }
-}
+function stopScan() { S.scanning = false; if (S.stream) { S.stream.getTracks().forEach(t => t.stop()); S.stream = null; } }
 const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true });
 async function scanLoop() {
   if (!S.scanning) return;
@@ -197,59 +148,30 @@ async function scanLoop() {
 }
 
 /* ------------------------------------------------------------ narzędzia testowe */
-async function search(q) {
-  $('#results').innerHTML = '<li class="hint">Szukam…</li>';
-  try {
-    const j = await api('GET', '/search?type=track&limit=5&q=' + encodeURIComponent(q));
-    const items = j.tracks.items;
-    $('#results').innerHTML = items.map((t, i) => `<li>
-      <div><b>${esc(t.name)}</b><br><small>${esc(t.artists.map(a => a.name).join(', '))} · ${fmt(t.duration_ms / 1000)} · ${esc(t.album.release_date)}</small></div>
-      <div class="row"><input type="number" min="0" value="60" data-s="${i}" aria-label="Start w sekundach"><button data-play="${i}">▶</button><button data-qr="${i}">QR</button></div></li>`).join('')
-      || '<li class="hint">Nic nie znaleziono.</li>';
-    $('#results').onclick = e => {
-      const b = e.target.closest('button'); if (!b) return;
-      const i = +(b.dataset.play ?? b.dataset.qr), t = items[i], s = +$(`input[data-s="${i}"]`).value || 0;
-      if (b.dataset.play != null) play(t.id, s); else showQR(`PRYWATKA1;${t.id};${s}`);
-    };
-  } catch (e) { $('#results').innerHTML = `<li class="err">Błąd wyszukiwania: ${esc(e.message)}</li>`; }
-}
+function ytId(v) { const m = String(v).match(/(?:v=|youtu\.be\/|shorts\/|embed\/)([\w-]{11})/); return m ? m[1] : (/^[\w-]{11}$/.test(v.trim()) ? v.trim() : null); }
 function showQR(text) {
   const qr = qrcode(0, 'M'); qr.addData(text); qr.make();
   $('#qrImg').innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
   $('#qrTxt').textContent = text; $('#qrBox').hidden = false;
 }
-const fmt = t => Math.floor(t / 60) + ':' + String(Math.round(t % 60)).padStart(2, '0');
 
 /* ------------------------------------------------------------ start */
-let wake = null;
-async function keepAwake() { try { wake = await navigator.wakeLock?.request('screen'); } catch (e) {} }
+async function keepAwake() { try { await navigator.wakeLock?.request('screen'); } catch (e) {} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
 
-async function boot() {
-  await handleRedirect();
-  const logged = !!S.token;
-  $('#devBtn').hidden = !logged;
-  if (!logged) { show('vLogin'); return; }
-  setDevice(S.device); show('vHome'); keepAwake();
-  pickDevice(false);
-}
 function bind() {
-  $('#loginBtn').onclick = login;
-  $('#logoutBtn').onclick = logout;
-  $('#devBtn').onclick = () => pickDevice(true);
-  $('#devRefresh').onclick = () => pickDevice(true);
-  $('#devClose').onclick = () => $('#devDlg').close();
   $('#scanBtn').onclick = startScan;
-  $('#nextBtn').onclick = async () => { clearInterval(S.timer); S.timer = null; if (S.cur && !S.paused) stopPlayback(); startScan(); };
+  $('#nextBtn').onclick = () => { if (S.want && !S.want.ended) S.player.pauseVideo(); S.want = null; startScan(); };
   $('#scanCancel').onclick = () => { stopScan(); show('vHome'); };
   $('#againBtn').onclick = () => S.cur && play(S.cur.id, S.cur.start);
   $('#moreBtn').onclick = more;
-  $('#pauseBtn').onclick = togglePause;
+  $('#pauseBtn').onclick = () => (S.want && S.want.paused) ? resume() : pause();
   $('#revealBtn').onclick = reveal;
-  $('#searchForm').onsubmit = e => { e.preventDefault(); const q = $('#q').value.trim(); if (q) search(q); };
-  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) play(m[1], +m[2]); else toast('Zły format. Przykład: PRYWATKA1;<22 znaki ID>;60'); };
+  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) play(m[1], +m[2]); else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
+  $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}`); };
   $('#lenSel').value = String(S.len);
   $('#lenSel').onchange = e => { S.len = +e.target.value; store.set('len', S.len); };
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-bind(); boot();
+bind(); show('vHome'); keepAwake(); pstate('ładowanie odtwarzacza…');
+$('#manual').value = 'PRYWATKA2;BSTsnWoslP4;149';

@@ -11,8 +11,8 @@ android {
         applicationId = "pl.filbary.prywatka"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2-test"
+        versionCode = 3
+        versionName = "0.3-test"
     }
 
     // Klucz testowy (debug) – jego odcisk SHA1 jest wpisany w ustawieniach aplikacji Spotify.

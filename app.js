@@ -6,8 +6,8 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('pry.' + k)); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem('pry.' + k, JSON.stringify(v)); } catch (e) {} },
 };
-const S = { player: null, ready: false, len: store.get('len') || 30, cur: null, want: null,
-  stream: null, scanning: false, total: 30 };
+const S = { player: null, ready: false, len: store.get('len2') || 15, cur: null, want: null,
+  stream: null, scanning: false, total: 15 };
 
 /* ------------------------------------------------------------ UI pomocnicze */
 function show(id) { document.querySelectorAll('.view').forEach(v => v.hidden = v.id !== id); }
@@ -170,7 +170,7 @@ function bind() {
   $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) play(m[1], +m[2]); else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
   $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}`); };
   $('#lenSel').value = String(S.len);
-  $('#lenSel').onchange = e => { S.len = +e.target.value; store.set('len', S.len); };
+  $('#lenSel').onchange = e => { S.len = +e.target.value; store.set('len2', S.len); };
 }
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 bind(); show('vHome'); keepAwake(); pstate('ładowanie odtwarzacza…');

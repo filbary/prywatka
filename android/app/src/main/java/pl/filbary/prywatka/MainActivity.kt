@@ -19,6 +19,11 @@ import com.journeyapps.barcodescanner.ScanOptions
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.spotify.sdk.android.auth.AuthorizationClient
+import com.spotify.sdk.android.auth.AuthorizationRequest
+import com.spotify.sdk.android.auth.AuthorizationResponse
+import android.content.pm.PackageManager
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -44,6 +49,26 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var logView: TextView
 
+    private var authorized = false
+    private var afterAuth: (() -> Unit)? = null
+
+    // Krok 1: jawna zgoda użytkownika (wymagana przez Spotify przed połączeniem App Remote)
+    private val authLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { res ->
+        val resp = AuthorizationClient.getResponse(res.resultCode, res.data)
+        when (resp.type) {
+            AuthorizationResponse.Type.TOKEN -> {
+                authorized = true
+                log("Zgoda Spotify udzielona ✓")
+                val next = afterAuth; afterAuth = null
+                connectRemote(next)
+            }
+            AuthorizationResponse.Type.ERROR -> { setStatus("Błąd autoryzacji ✗", "#ff6b6b"); log("Autoryzacja – błąd: ${resp.error}") }
+            else -> { setStatus("Autoryzacja przerwana", "#ff6b6b"); log("Autoryzacja przerwana (${resp.type})") }
+        }
+    }
+
     private val scanner = registerForActivityResult(ScanContract()) { result ->
         val text = result.contents ?: return@registerForActivityResult
         input.setText(text)
@@ -54,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
         log("Gotowe. Spotify zainstalowane: " + SpotifyAppRemote.isSpotifyInstalled(this))
+        log("Odcisk SHA1 tej aplikacji: " + signingSha1())
     }
 
     override fun onDestroy() {
@@ -69,6 +95,19 @@ class MainActivity : AppCompatActivity() {
             log("Brak aplikacji Spotify na telefonie – zainstaluj ją ze Sklepu Play.")
             return
         }
+        if (!authorized) {
+            setStatus("Proszę o zgodę Spotify…", "#ffc24b")
+            afterAuth = then
+            val req = AuthorizationRequest.Builder(CLIENT_ID, AuthorizationResponse.Type.TOKEN, REDIRECT_URI)
+                .setScopes(arrayOf("app-remote-control", "user-modify-playback-state", "user-read-playback-state"))
+                .build()
+            authLauncher.launch(AuthorizationClient.createLoginActivityIntent(this, req))
+            return
+        }
+        connectRemote(then)
+    }
+
+    private fun connectRemote(then: (() -> Unit)?) {
         setStatus("Łączenie ze Spotify…", "#ffc24b")
         val params = ConnectionParams.Builder(CLIENT_ID)
             .setRedirectUri(REDIRECT_URI)
@@ -152,7 +191,8 @@ class MainActivity : AppCompatActivity() {
         root.addView(button("1. Połącz ze Spotify") { connect() })
         root.addView(button("📷 Skanuj kartę") {
             scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setPrompt("Zeskanuj kod karty Prywatki").setBeepEnabled(false).setOrientationLocked(false))
+                .setPrompt("Zeskanuj kod karty Prywatki").setBeepEnabled(false)
+                .setOrientationLocked(true).setCaptureActivity(PortraitCaptureActivity::class.java))
         })
         input = EditText(this).apply {
             setText("PRYWATKA1;4u7EnebtmKWzUH433cf5Qv;149")
@@ -167,6 +207,12 @@ class MainActivity : AppCompatActivity() {
         root.addView(logView)
         return ScrollView(this).apply { addView(root); setBackgroundColor(Color.parseColor("#15121c")) }
     }
+
+    private fun signingSha1(): String = try {
+        val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        val cert = info.signingInfo!!.apkContentsSigners[0].toByteArray()
+        MessageDigest.getInstance("SHA-1").digest(cert).joinToString(":") { "%02X".format(it) }
+    } catch (e: Exception) { "? (${e.message})" }
 
     private fun setStatus(s: String, color: String) = runOnUiThread {
         status.text = s; status.setTextColor(Color.parseColor(color))

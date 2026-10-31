@@ -33,6 +33,11 @@ jobs:
       - name: Zbuduj APK
         run: gradle -p android assembleDebug --no-daemon --stacktrace
 
+      - name: Pokaz odcisk certyfikatu (SHA1)
+        run: |
+          BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+          "$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | grep -i sha-1
+
       - name: Przygotuj plik
         run: cp android/app/build/outputs/apk/debug/app-debug.apk prywatka-test.apk
 

@@ -38,7 +38,7 @@ function show(id) {
   ballEl.classList.toggle('hot', id === 'vPlay'); ballEl.classList.toggle('gold', id === 'vReveal');
   if (mode) ball.setSpeed(SPEED[mode]);
   document.documentElement.style.setProperty('--beams', id === 'vPlay' ? '16s' : '40s');
-  requestAnimationFrame(placeBall);
+  placeBall(); requestAnimationFrame(placeBall); setTimeout(placeBall, 300);
 }
 window.addEventListener('resize', () => requestAnimationFrame(placeBall));
 

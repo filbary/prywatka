@@ -1,5 +1,5 @@
 // Prywatka – service worker: aplikacja ładuje się bez sieci; zapytania do Spotify zawsze idą do sieci.
-const CACHE = 'prywatka-v1';
+const CACHE = 'prywatka-v2';
 const FILES = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'vendor/jsQR.js', 'vendor/qrcode.js'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });

@@ -46,7 +46,7 @@ button:focus:not(:focus-visible){outline:none}
 .stage.reveal .slot{width:calc(var(--ball) * .5);height:calc(var(--ball) * .5)}
 .string{position:absolute;left:50%;top:0;width:2px;height:calc(50% - var(--ball) / 2);transform:translateX(-50%);background:linear-gradient(180deg,rgba(255,255,255,0),rgba(220,210,255,.55))}
 .string.short{height:10px;top:-4px}
-.floorglow{position:absolute;left:50%;bottom:4%;width:60%;height:26px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse at center,rgba(255,79,163,.3),rgba(255,79,163,0) 70%)}
+.floorglow{position:absolute;left:50%;top:calc(50% + var(--ball) / 2 + 30px);width:60%;height:26px;transform:translateX(-50%);border-radius:50%;background:radial-gradient(ellipse at center,rgba(255,79,163,.3),rgba(255,79,163,0) 70%)}
 .ball{position:fixed;z-index:3;border-radius:50%;pointer-events:none}
 .ball::before{content:'';position:absolute;inset:-48%;border-radius:50%;z-index:-1;transition:opacity .6s;
   background:radial-gradient(circle,rgba(255,79,163,.34) 0%,rgba(140,100,255,.22) 38%,rgba(120,96,255,0) 68%)}

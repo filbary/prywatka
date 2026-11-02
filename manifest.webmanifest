@@ -1,6 +1,6 @@
 {
-  "name": "Prywatka",
-  "short_name": "Prywatka",
+  "name": "Disco Domówka",
+  "short_name": "Disco Domówka",
   "description": "Muzyczna gra imprezowa – zeskanuj kartę, posłuchaj, zgadnij rok.",
   "start_url": "./",
   "scope": "./",

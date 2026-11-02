@@ -1,8 +1,8 @@
-/* Prywatka – aplikacja (YouTube w ukrytym odtwarzaczu, kula disco, skaner QR) */
+/* Disco Domówka – aplikacja (YouTube w ukrytym odtwarzaczu, kula disco, skaner QR) */
 'use strict';
-// kod karty: PRYWATKA2;<ID YouTube>;<start w s>[;<rok>]  – rok zapisany jako (rok-1900) w systemie 36 (np. 1975 → „23”),
+// kod karty: DD1;<ID YouTube>;<start w s>[;<rok>]  (starszy format PRYWATKA2;… też działa)  – rok zapisany jako (rok-1900) w systemie 36 (np. 1975 → „23”),
 // żeby zwykły aparat w telefonie nie zdradzał go wprost
-const QR_RE = /^PRYWATKA2;([A-Za-z0-9_-]{11});(\d{1,4})(?:;([0-9A-Za-z]{1,3}))?$/;
+const QR_RE = /^(?:DD1|PRYWATKA2);([A-Za-z0-9_-]{11});(\d{1,4})(?:;([0-9A-Za-z]{1,3}))?$/;
 const decYear = s => { const y = s ? parseInt(s, 36) + 1900 : NaN; return y > 1900 && y < 2100 ? y : null; };
 const encYear = y => (y - 1900).toString(36).toUpperCase();
 const $ = s => document.querySelector(s);
@@ -102,7 +102,7 @@ const fmtCount = n => S.theme === 'spk' ? '00:' + String(n).padStart(2, '0') : S
 function neutralMediaSession() {
   if (!('mediaSession' in navigator)) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Prywatka', artist: 'Parkiet czeka!',
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Disco Domówka', artist: 'Zgadnij rok!',
       artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] });
     navigator.mediaSession.setActionHandler('play', () => resume());
     navigator.mediaSession.setActionHandler('pause', () => pause());
@@ -276,11 +276,11 @@ function bind() {
   $('#nextBtn2').onclick = startScan;
   document.querySelectorAll('#themeSeg button').forEach(b => b.onclick = () => applyTheme(b.dataset.v));
   document.querySelectorAll('#lenSeg button').forEach(b => b.onclick = () => { S.len = +b.dataset.v; store.set('len2', S.len); renderLen(); });
-  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true, decYear(m[3])); } else toast('Zły format. Przykład: PRYWATKA2;BSTsnWoslP4;149'); };
-  $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); const y = +$('#linkYear').value; showQR(`PRYWATKA2;${id};${+$('#linkSec').value || 0}` + (y > 1900 && y < 2100 ? ';' + encYear(y) : '')); };
+  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true, decYear(m[3])); } else toast('Zły format. Przykład: DD1;BSTsnWoslP4;149;23'); };
+  $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); const y = +$('#linkYear').value; showQR(`DD1;${id};${+$('#linkSec').value || 0}` + (y > 1900 && y < 2100 ? ';' + encYear(y) : '')); };
 }
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 bind(); renderLen(); buildDecor(); setToggle('playing'); show('vHome'); applyTheme(S.theme); keepAwake(); trackBall();
-$('#manual').value = 'PRYWATKA2;BSTsnWoslP4;149;' + encYear(1975);
+$('#manual').value = 'DD1;BSTsnWoslP4;149;' + encYear(1975);
 document.fonts?.ready.then(() => requestAnimationFrame(placeBall));

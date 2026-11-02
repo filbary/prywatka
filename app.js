@@ -2,7 +2,9 @@
 'use strict';
 // kod karty: DD1;<ID YouTube>;<start w s>[;<rok>]  (starszy format PRYWATKA2;… też działa)  – rok zapisany jako (rok-1900) w systemie 36 (np. 1975 → „23”),
 // żeby zwykły aparat w telefonie nie zdradzał go wprost
-const QR_RE = /^(?:DD1|PRYWATKA2);([A-Za-z0-9_-]{11});(\d{1,4})(?:;([0-9A-Za-z]{1,3}))?$/;
+// opcjonalne 5. pole: start fragmentu „trudnego” (bez tytułu piosenki)
+const QR_RE = /^(?:DD1|PRYWATKA2);([A-Za-z0-9_-]{11});(\d{1,4})(?:;([0-9A-Za-z]{1,3})(?:;(\d{1,4}))?)?$/;
+const pickStart = m => (S.level === 'hard' && m[4] != null) ? +m[4] : +m[2];
 const decYear = s => { const y = s ? parseInt(s, 36) + 1900 : NaN; return y > 1900 && y < 2100 ? y : null; };
 const encYear = y => (y - 1900).toString(36).toUpperCase();
 const $ = s => document.querySelector(s);
@@ -10,7 +12,7 @@ const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('pry.' + k)); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem('pry.' + k, JSON.stringify(v)); } catch (e) {} },
 };
-const S = { player: null, ready: false, len: store.get('len2') || 15, theme: store.get('theme') === 'spk' ? 'spk' : 'disco', cur: null, want: null,
+const S = { player: null, ready: false, len: store.get('len2') || 15, theme: store.get('theme') === 'spk' ? 'spk' : 'disco', level: store.get('level') === 'hard' ? 'hard' : 'easy', cur: null, want: null,
   stream: null, scanning: false, total: 15, cards: 0, view: 'vHome' };
 const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1.5"/><rect x="14" y="5" width="4" height="14" rx="1.5"/></svg>';
 const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>';
@@ -241,7 +243,7 @@ async function scanLoop() {
   }
   if (text) {
     const m = text.trim().match(QR_RE);
-    if (m) { navigator.vibrate?.(60); stopScan(); play(m[1], +m[2], true, decYear(m[3])); return; }
+    if (m) { navigator.vibrate?.(60); stopScan(); play(m[1], pickStart(m), true, decYear(m[3])); return; }
     $('#scanMsg').textContent = 'To nie jest karta Prywatki';
   }
   setTimeout(scanLoop, detector ? 120 : 180);
@@ -254,7 +256,10 @@ function showQR(text) {
   $('#qrImg').innerHTML = qr.createSvgTag({ cellSize: 6, margin: 4, scalable: true });
   $('#qrTxt').textContent = text; $('#qrBox').hidden = false;
 }
-function renderLen() { document.querySelectorAll('#lenSeg button').forEach(b => b.classList.toggle('on', +b.dataset.v === S.len)); }
+function renderLen() {
+  document.querySelectorAll('#lenSeg button').forEach(b => b.classList.toggle('on', +b.dataset.v === S.len));
+  document.querySelectorAll('#levelSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === S.level));
+}
 
 async function keepAwake() { try { await navigator.wakeLock?.request('screen'); } catch (e) {} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
@@ -276,7 +281,8 @@ function bind() {
   $('#nextBtn2').onclick = startScan;
   document.querySelectorAll('#themeSeg button').forEach(b => b.onclick = () => applyTheme(b.dataset.v));
   document.querySelectorAll('#lenSeg button').forEach(b => b.onclick = () => { S.len = +b.dataset.v; store.set('len2', S.len); renderLen(); });
-  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], +m[2], true, decYear(m[3])); } else toast('Zły format. Przykład: DD1;BSTsnWoslP4;149;23'); };
+  document.querySelectorAll('#levelSeg button').forEach(b => b.onclick = () => { S.level = b.dataset.v; store.set('level', S.level); renderLen(); });
+  $('#manualForm').onsubmit = e => { e.preventDefault(); const m = $('#manual').value.trim().match(QR_RE); if (m) { $('#setDlg').close(); play(m[1], pickStart(m), true, decYear(m[3])); } else toast('Zły format. Przykład: DD1;BSTsnWoslP4;149;23'); };
   $('#linkForm').onsubmit = e => { e.preventDefault(); const id = ytId($('#link').value); if (!id) return toast('Nie rozpoznaję linku YouTube'); const y = +$('#linkYear').value; showQR(`DD1;${id};${+$('#linkSec').value || 0}` + (y > 1900 && y < 2100 ? ';' + encYear(y) : '')); };
 }
 
